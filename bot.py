@@ -2,7 +2,6 @@ import os
 import time
 from beem import Hive
 from beem.market import Market
-from beem.account import Account
 from beem.amount import Amount
 
 # --- AYARLAR ---
@@ -24,14 +23,20 @@ def get_market():
     return Market(f"{SYMBOL_BASE}:{SYMBOL_QUOTE}", blockchain_instance=hive)
 
 def get_balances():
+    """RPC ile doğrudan bakiye al (en güvenilir yöntem)"""
     hive = get_client()
-    acc = Account(USERNAME, blockchain_instance=hive)
-    return {
-        "HIVE": float(acc.balances["available"][SYMBOL_BASE]),
-        "HBD":  float(acc.balances["available"][SYMBOL_QUOTE]),
-    }
+    try:
+        acc_data = hive.rpc.get_accounts([USERNAME])[0]
+        # "10.000 HIVE" formatından sadece sayıyı al
+        hive_bal = float(acc_data['balance'].split()[0])
+        hbd_bal  = float(acc_data['hbd_balance'].split()[0])
+        return {"HIVE": hive_bal, "HBD": hbd_bal}
+    except Exception as e:
+        print(f"⚠️ Bakiye alınamadı: {e}")
+        return {"HIVE": 0.0, "HBD": 0.0}
 
 def get_open_orders():
+    """Açık emirleri RPC ile al"""
     hive = get_client()
     try:
         orders = hive.rpc.get_open_orders(USERNAME)
@@ -41,6 +46,7 @@ def get_open_orders():
         return []
 
 def cancel_all_orders():
+    """Tüm açık emirleri iptal et"""
     hive = get_client()
     orders = get_open_orders()
     
@@ -60,10 +66,9 @@ def cancel_all_orders():
             print(f"❌ İptal hatası: {e}")
 
 def place_orders():
+    """Alış ve satış emirleri ver"""
     market = get_market()
     ticker = market.ticker()
-    
-    print(f"🔍 Ticker çıktısı: {ticker}")
     
     highest_bid = ticker.get("highest_bid") or ticker.get("highestBid")
     lowest_ask  = ticker.get("lowest_ask")  or ticker.get("lowestAsk")
@@ -77,12 +82,13 @@ def place_orders():
     
     print(f"📊 Piyasa -> Bid: {highest_bid} | Ask: {lowest_ask}")
     
-    my_buy_price  = round(highest_bid * (1 - SPREAD_PERCENT/200), 3)
-    my_sell_price = round(lowest_ask  * (1 + SPREAD_PERCENT/200), 3)
+    my_buy_price  = round(highest_bid * (1 - SPREAD_PERCENT/200), 6)
+    my_sell_price = round(lowest_ask  * (1 + SPREAD_PERCENT/200), 6)
     
     balances = get_balances()
     print(f"💰 Bakiye -> HIVE: {balances['HIVE']} | HBD: {balances['HBD']}")
     
+    # 🟢 ALIŞ emri (HBD ile HIVE al)
     if balances["HBD"] >= ORDER_AMOUNT_HBD:
         try:
             market.buy(my_buy_price, Amount(f"{ORDER_AMOUNT_HBD} {SYMBOL_QUOTE}"))
@@ -91,8 +97,9 @@ def place_orders():
         except Exception as e:
             print(f"❌ Alış hatası: {e}")
     else:
-        print(f"⚠️ Yetersiz HBD: {balances['HBD']}")
+        print(f"⚠️ Yetersiz HBD: {balances['HBD']} < {ORDER_AMOUNT_HBD}")
     
+    # 🔴 SATIŞ emri (HIVE ile HBD al)
     hive_to_sell = ORDER_AMOUNT_HBD / my_sell_price
     if balances["HIVE"] >= hive_to_sell:
         try:
@@ -102,7 +109,7 @@ def place_orders():
         except Exception as e:
             print(f"❌ Satış hatası: {e}")
     else:
-        print(f"⚠️ Yetersiz HIVE: {balances['HIVE']}")
+        print(f"⚠️ Yetersiz HIVE: {balances['HIVE']} < {hive_to_sell:.3f}")
 
 def main():
     separator = "=" * 50
