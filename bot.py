@@ -38,15 +38,30 @@ def get_balances():
 def get_open_orders():
     hive = get_client()
     acc = Account(USERNAME, blockchain_instance=hive)
-    return acc.open_orders
+    # DÜZELTME: get_open_orders() metodu kullanıldı
+    try:
+        return acc.get_open_orders()
+    except Exception as e:
+        print(f"⚠️ Open orders alınamadı: {e}")
+        return []
 
 def cancel_all_orders():
     hive = get_client()
     acc = Account(USERNAME, blockchain_instance=hive)
-    for order in acc.open_orders:
+    orders = get_open_orders()
+    
+    if not orders:
+        print("ℹ️ İptal edilecek açık emir yok")
+        return
+    
+    print(f"📋 {len(orders)} açık emir bulundu")
+    
+    for order in orders:
         try:
-            acc.cancel(order["id"])
-            print(f"✅ İptal: {order['id']}")
+            # order bir dict veya nesne olabilir, id'yi al
+            order_id = order.get("id") if isinstance(order, dict) else order["id"]
+            acc.cancel(order_id)
+            print(f"✅ İptal: {order_id}")
             time.sleep(3)
         except Exception as e:
             print(f"❌ İptal hatası: {e}")
