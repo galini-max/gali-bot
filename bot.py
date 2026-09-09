@@ -2,6 +2,7 @@ import os
 import time
 from beem import Hive
 from beem.market import Market
+from beem.account import Account
 from beem.amount import Amount
 
 HIVE_NODE = os.getenv("HIVE_NODE", "https://api.hive.blog")
@@ -20,7 +21,8 @@ def get_client():
 
 def get_market():
     hive = get_client()
-    return Market(SYMBOL_BASE + ":" + SYMBOL_QUOTE, blockchain_instance=hive)
+    account = Account(USERNAME, blockchain_instance=hive)
+    return Market(SYMBOL_BASE + ":" + SYMBOL_QUOTE, blockchain_instance=hive, account=account)
 
 def get_balances():
     hive = get_client()
@@ -78,7 +80,7 @@ def place_orders():
     print("Kullanilacak -> HBD: " + str(round(hbd_to_use, 3)) + " | HIVE: " + str(round(hive_to_use, 3)))
     if hbd_to_use >= MIN_ORDER_HBD:
         try:
-            market.buy(my_buy_price, Amount(str(round(hbd_to_use, 3)) + " " + SYMBOL_QUOTE))
+            market.buy(my_buy_price, Amount(str(round(hbd_to_use, 3)) + " " + SYMBOL_QUOTE), account=USERNAME)
             print("ALIS emri: " + str(round(hbd_to_use, 3)) + " HBD @ " + str(my_buy_price))
             time.sleep(3)
         except Exception as e:
@@ -87,7 +89,7 @@ def place_orders():
         print("Alis atlandi (HBD yetersiz)")
     if hive_to_use >= 0.01:
         try:
-            market.sell(my_sell_price, Amount(str(round(hive_to_use, 3)) + " " + SYMBOL_BASE))
+            market.sell(my_sell_price, Amount(str(round(hive_to_use, 3)) + " " + SYMBOL_BASE), account=USERNAME)
             print("SATIS emri: " + str(round(hive_to_use, 3)) + " HIVE @ " + str(my_sell_price))
             time.sleep(3)
         except Exception as e:
