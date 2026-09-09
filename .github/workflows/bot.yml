@@ -1,0 +1,27 @@
+name: Hive Market Bot
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      
+      - name: Bağımlılıkları kur
+        run: pip install -r requirements.txt
+      
+      - name: Botu çalıştır
+        env:
+          HIVE_USERNAME: ${{ secrets.HIVE_USERNAME }}
+          ACTIVE_KEY: ${{ secrets.ACTIVE_KEY }}
+          HIVE_NODE: https://api.hive.blog
+        run: python bot.py
