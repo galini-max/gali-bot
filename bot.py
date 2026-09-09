@@ -115,4 +115,7 @@ def place_orders():
         print(f"⚠️ Yetersiz HIVE bakiyesi: {balances['HIVE']} < {hive_to_sell:.3f}")
 
 def main():
-    print(f"\n{'='*50
+    separator = "=" * 50
+    print(f"\n{separator}")
+    print(f"🤖 Hive Bot çalıştı - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(separator)
