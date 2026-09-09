@@ -4,16 +4,15 @@ from beem import Hive
 from beem.market import Market
 from beem.amount import Amount
 
-# --- AYARLAR ---
 HIVE_NODE = os.getenv("HIVE_NODE", "https://api.hive.blog")
-ACTIVE_KEY  = os.getenv("ACTIVE_KEY")
-USERNAME    = os.getenv("HIVE_USERNAME")
+ACTIVE_KEY = os.getenv("ACTIVE_KEY")
+USERNAME = os.getenv("HIVE_USERNAME")
 
 SYMBOL_BASE = "HIVE"
 SYMBOL_QUOTE = "HBD"
-SPREAD_PERCENT = 1.5      # Al-sat arasındaki % kar marjı
-USE_BALANCE_PERCENT = 90  # Bakiyenin %kaçını kullanacak (90 = %90)
-MIN_ORDER_HBD = 0.1       # Minimum işlem miktarı (altında işlem yapmaz)
+SPREAD_PERCENT = 1.5
+USE_BALANCE_PERCENT = 90
+MIN_ORDER_HBD = 0.1
 
 def get_client():
     keys = [ACTIVE_KEY] if ACTIVE_KEY else []
@@ -21,103 +20,97 @@ def get_client():
 
 def get_market():
     hive = get_client()
-    return Market(f"{SYMBOL_BASE}:{SYMBOL_QUOTE}", blockchain_instance=hive)
+    return Market(SYMBOL_BASE + ":" + SYMBOL_QUOTE, blockchain_instance=hive)
 
 def get_balances():
-    """RPC ile doğrudan bakiye al"""
     hive = get_client()
     try:
         acc_data = hive.rpc.get_accounts([USERNAME])[0]
         hive_bal = float(acc_data['balance'].split()[0])
-        hbd_bal  = float(acc_data['hbd_balance'].split()[0])
+        hbd_bal = float(acc_data['hbd_balance'].split()[0])
         return {"HIVE": hive_bal, "HBD": hbd_bal}
     except Exception as e:
-        print(f"⚠️ Bakiye alınamadı: {e}")
+        print("Bakiye hatasi: " + str(e))
         return {"HIVE": 0.0, "HBD": 0.0}
 
 def get_open_orders():
-    """Açık emirleri RPC ile al"""
     hive = get_client()
     try:
         orders = hive.rpc.get_open_orders(USERNAME)
         return orders if orders else []
     except Exception as e:
-        print(f"⚠️ Open orders alınamadı: {e}")
+        print("Open orders hatasi: " + str(e))
         return []
 
 def cancel_all_orders():
-    """Tüm açık emirleri iptal et"""
     hive = get_client()
     orders = get_open_orders()
-    
     if not orders:
-        print("ℹ️ İptal edilecek açık emir yok")
+        print("Iptal edilecek emir yok")
         return
-    
-    print(f"📋 {len(orders)} açık emir bulundu")
-    
+    print(str(len(orders)) + " emir bulundu")
     for order in orders:
         try:
             order_id = order.get("orderid")
             hive.rpc.cancel_order(USERNAME, order_id)
-            print(f"✅ İptal edildi: orderid={order_id}")
+            print("Iptal: " + str(order_id))
             time.sleep(3)
         except Exception as e:
-            print(f"❌ İptal hatası: {e}")
+            print("Iptal hatasi: " + str(e))
 
 def place_orders():
-    """Bakiyeye göre otomatik alış ve satış emirleri ver"""
     market = get_market()
     ticker = market.ticker()
-    
     highest_bid = ticker.get("highest_bid") or ticker.get("highestBid")
-    lowest_ask  = ticker.get("lowest_ask")  or ticker.get("lowestAsk")
-    
+    lowest_ask = ticker.get("lowest_ask") or ticker.get("lowestAsk")
     if highest_bid is None or lowest_ask is None:
-        print(f"❌ Piyasa verisi alınamadı!")
+        print("Piyasa verisi alinamadi")
         return
-    
     highest_bid = float(highest_bid)
-    lowest_ask  = float(lowest_ask)
-    
-    print(f"📊 Piyasa -> Bid: {highest_bid} | Ask: {lowest_ask}")
-    
-    my_buy_price  = round(highest_bid * (1 - SPREAD_PERCENT/200), 6)
-    my_sell_price = round(lowest_ask  * (1 + SPREAD_PERCENT/200), 6)
-    
+    lowest_ask = float(lowest_ask)
+    print("Piyasa -> Bid: " + str(highest_bid) + " | Ask: " + str(lowest_ask))
+    my_buy_price = round(highest_bid * (1 - SPREAD_PERCENT / 200), 6)
+    my_sell_price = round(lowest_ask * (1 + SPREAD_PERCENT / 200), 6)
     balances = get_balances()
-    print(f"💰 Bakiye -> HIVE: {balances['HIVE']} | HBD: {balances['HBD']}")
-    
-    # Kullanılacak miktarları hesapla (bakiyenin %90'ı)
+    print("Bakiye -> HIVE: " + str(balances['HIVE']) + " | HBD: " + str(balances['HBD']))
     hbd_to_use = balances["HBD"] * (USE_BALANCE_PERCENT / 100)
     hive_to_use = balances["HIVE"] * (USE_BALANCE_PERCENT / 100)
-    
-    print(f"🎯 Kullanılacak -> HBD: {hbd_to_use:.3f} | HIVE: {hive_to_use:.3f}")
-    
-    order_placed = False
-    
-    # 🟢 ALIŞ emri (HBD ile HIVE al)
+    print("Kullanilacak -> HBD: " + str(round(hbd_to_use, 3)) + " | HIVE: " + str(round(hive_to_use, 3)))
     if hbd_to_use >= MIN_ORDER_HBD:
         try:
-            market.buy(my_buy_price, Amount(f"{hbd_to_use:.3f} {SYMBOL_QUOTE}"))
-            print(f"🟢 ALIŞ emri: {hbd_to_use:.3f} HBD @ {my_buy_price}")
+            market.buy(my_buy_price, Amount(str(round(hbd_to_use, 3)) + " " + SYMBOL_QUOTE))
+            print("ALIS emri: " + str(round(hbd_to_use, 3)) + " HBD @ " + str(my_buy_price))
             time.sleep(3)
-            order_placed = True
         except Exception as e:
-            print(f"❌ Alış hatası: {e}")
+            print("Alis hatasi: " + str(e))
     else:
-        print(f"⏭️ Alış atlandı (HBD yetersiz: {hbd_to_use:.3f} < {MIN_ORDER_HBD})")
-    
-    # 🔴 SATIŞ emri (HIVE ile HBD al)
-    if hive_to_use >= 0.01:  # Minimum 0.01 HIVE
+        print("Alis atlandi (HBD yetersiz)")
+    if hive_to_use >= 0.01:
         try:
-            market.sell(my_sell_price, Amount(f"{hive_to_use:.3f} {SYMBOL_BASE}"))
-            print(f"🔴 SATIŞ emri: {hive_to_use:.3f} HIVE @ {my_sell_price}")
+            market.sell(my_sell_price, Amount(str(round(hive_to_use, 3)) + " " + SYMBOL_BASE))
+            print("SATIS emri: " + str(round(hive_to_use, 3)) + " HIVE @ " + str(my_sell_price))
             time.sleep(3)
-            order_placed = True
         except Exception as e:
-            print(f"❌ Satış hatası: {e}")
+            print("Satis hatasi: " + str(e))
     else:
-        print(f"⏭️ Satış atlandı (HIVE yetersiz: {hive_to_use:.3f})")
-    
-    if not order_pl
+        print("Satis atlandi (HIVE yetersiz)")
+
+def main():
+    print("=" * 50)
+    print("Hive Bot calisti - " + time.strftime('%Y-%m-%d %H:%M:%S'))
+    print("=" * 50)
+    if not ACTIVE_KEY or not USERNAME:
+        print("HATA: ACTIVE_KEY veya HIVE_USERNAME eksik!")
+        return
+    try:
+        cancel_all_orders()
+        time.sleep(5)
+        place_orders()
+        print("Bot dongusu tamamlandi")
+    except Exception as e:
+        print("Kritik hata: " + str(e))
+        import traceback
+        traceback.print_exc()
+
+if __name__ == "__main__":
+    main()
