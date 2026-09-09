@@ -1,15 +1,12 @@
 import os
-import json
 import time
 from beem import Hive
 from beem.market import Market
 from beem.account import Account
-from beem.price import Price
 from beem.amount import Amount
 
 # --- AYARLAR ---
 HIVE_NODE = os.getenv("HIVE_NODE", "https://api.hive.blog")
-POSTING_KEY = os.getenv("POSTING_KEY")
 ACTIVE_KEY  = os.getenv("ACTIVE_KEY")
 USERNAME    = os.getenv("HIVE_USERNAME")
 
@@ -17,7 +14,6 @@ SYMBOL_BASE = "HIVE"
 SYMBOL_QUOTE = "HBD"
 SPREAD_PERCENT = 1.5
 ORDER_AMOUNT_HBD = 10
-MAX_OPEN_ORDERS = 3
 
 def get_client():
     keys = [ACTIVE_KEY] if ACTIVE_KEY else []
@@ -36,18 +32,18 @@ def get_balances():
     }
 
 def get_open_orders():
+    """Açık emirleri RPC ile al (en güvenilir yöntem)"""
     hive = get_client()
-    acc = Account(USERNAME, blockchain_instance=hive)
-    # DÜZELTME: get_open_orders() metodu kullanıldı
     try:
-        return acc.get_open_orders()
+        orders = hive.rpc.get_open_orders(USERNAME)
+        return orders if orders else []
     except Exception as e:
         print(f"⚠️ Open orders alınamadı: {e}")
         return []
 
 def cancel_all_orders():
+    """Tüm açık emirleri iptal et"""
     hive = get_client()
-    acc = Account(USERNAME, blockchain_instance=hive)
     orders = get_open_orders()
     
     if not orders:
@@ -58,29 +54,44 @@ def cancel_all_orders():
     
     for order in orders:
         try:
-            # order bir dict veya nesne olabilir, id'yi al
-            order_id = order.get("id") if isinstance(order, dict) else order["id"]
-            acc.cancel(order_id)
-            print(f"✅ İptal: {order_id}")
+            order_id = order.get("orderid")
+            # RPC ile doğrudan iptal
+            hive.rpc.cancel_order(USERNAME, order_id)
+            print(f"✅ İptal edildi: orderid={order_id}")
             time.sleep(3)
         except Exception as e:
             print(f"❌ İptal hatası: {e}")
 
 def place_orders():
+    """Alış ve satış emirleri ver"""
     market = get_market()
     ticker = market.ticker()
     
-    highest_bid = float(ticker["highestBid"])
-    lowest_ask  = float(ticker["lowestAsk"])
+    # 🔍 DEBUG: Ticker çıktısını göster (sorun tespiti için)
+    print(f"🔍 Ticker çıktısı: {ticker}")
+    
+    # Küçük harf anahtarlar (beem'in güncel versiyonu)
+    # Fallback olarak büyük harfli olanları da dene
+    highest_bid = ticker.get("highest_bid") or ticker.get("highestBid")
+    lowest_ask  = ticker.get("lowest_ask")  or ticker.get("lowestAsk")
+    
+    if highest_bid is None or lowest_ask is None:
+        print(f"❌ Piyasa verisi alınamadı! Ticker çıktısını kontrol et.")
+        return
+    
+    highest_bid = float(highest_bid)
+    lowest_ask  = float(lowest_ask)
     
     print(f"📊 Piyasa -> Bid: {highest_bid} | Ask: {lowest_ask}")
     
+    # Benim fiyatlarım (spread ile)
     my_buy_price  = round(highest_bid * (1 - SPREAD_PERCENT/200), 3)
     my_sell_price = round(lowest_ask  * (1 + SPREAD_PERCENT/200), 3)
     
     balances = get_balances()
     print(f"💰 Bakiye -> HIVE: {balances['HIVE']} | HBD: {balances['HBD']}")
     
+    # 🟢 ALIŞ emri (HBD ile HIVE al)
     if balances["HBD"] >= ORDER_AMOUNT_HBD:
         try:
             market.buy(my_buy_price, Amount(f"{ORDER_AMOUNT_HBD} {SYMBOL_QUOTE}"))
@@ -88,7 +99,10 @@ def place_orders():
             time.sleep(3)
         except Exception as e:
             print(f"❌ Alış hatası: {e}")
+    else:
+        print(f"⚠️ Yetersiz HBD bakiyesi: {balances['HBD']} < {ORDER_AMOUNT_HBD}")
     
+    # 🔴 SATIŞ emri (HIVE ile HBD al)
     hive_to_sell = ORDER_AMOUNT_HBD / my_sell_price
     if balances["HIVE"] >= hive_to_sell:
         try:
@@ -97,22 +111,8 @@ def place_orders():
             time.sleep(3)
         except Exception as e:
             print(f"❌ Satış hatası: {e}")
+    else:
+        print(f"⚠️ Yetersiz HIVE bakiyesi: {balances['HIVE']} < {hive_to_sell:.3f}")
 
 def main():
-    print(f"\n{'='*50}")
-    print(f"🤖 Hive Bot çalıştı - {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*50}")
-    
-    if not ACTIVE_KEY or not USERNAME:
-        print("❌ ACTIVE_KEY veya HIVE_USERNAME eksik!")
-        return
-    
-    try:
-        cancel_all_orders()
-        time.sleep(5)
-        place_orders()
-    except Exception as e:
-        print(f"💥 Kritik hata: {e}")
-
-if __name__ == "__main__":
-    main()
+    print(f"\n{'='*50
