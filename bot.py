@@ -11,8 +11,9 @@ USERNAME    = os.getenv("HIVE_USERNAME")
 
 SYMBOL_BASE = "HIVE"
 SYMBOL_QUOTE = "HBD"
-SPREAD_PERCENT = 1.5
-ORDER_AMOUNT_HBD = 10
+SPREAD_PERCENT = 1.5      # Al-sat arasındaki % kar marjı
+USE_BALANCE_PERCENT = 90  # Bakiyenin %kaçını kullanacak (90 = %90)
+MIN_ORDER_HBD = 0.1       # Minimum işlem miktarı (altında işlem yapmaz)
 
 def get_client():
     keys = [ACTIVE_KEY] if ACTIVE_KEY else []
@@ -23,11 +24,10 @@ def get_market():
     return Market(f"{SYMBOL_BASE}:{SYMBOL_QUOTE}", blockchain_instance=hive)
 
 def get_balances():
-    """RPC ile doğrudan bakiye al (en güvenilir yöntem)"""
+    """RPC ile doğrudan bakiye al"""
     hive = get_client()
     try:
         acc_data = hive.rpc.get_accounts([USERNAME])[0]
-        # "10.000 HIVE" formatından sadece sayıyı al
         hive_bal = float(acc_data['balance'].split()[0])
         hbd_bal  = float(acc_data['hbd_balance'].split()[0])
         return {"HIVE": hive_bal, "HBD": hbd_bal}
@@ -66,7 +66,7 @@ def cancel_all_orders():
             print(f"❌ İptal hatası: {e}")
 
 def place_orders():
-    """Alış ve satış emirleri ver"""
+    """Bakiyeye göre otomatik alış ve satış emirleri ver"""
     market = get_market()
     ticker = market.ticker()
     
@@ -88,48 +88,36 @@ def place_orders():
     balances = get_balances()
     print(f"💰 Bakiye -> HIVE: {balances['HIVE']} | HBD: {balances['HBD']}")
     
+    # Kullanılacak miktarları hesapla (bakiyenin %90'ı)
+    hbd_to_use = balances["HBD"] * (USE_BALANCE_PERCENT / 100)
+    hive_to_use = balances["HIVE"] * (USE_BALANCE_PERCENT / 100)
+    
+    print(f"🎯 Kullanılacak -> HBD: {hbd_to_use:.3f} | HIVE: {hive_to_use:.3f}")
+    
+    order_placed = False
+    
     # 🟢 ALIŞ emri (HBD ile HIVE al)
-    if balances["HBD"] >= ORDER_AMOUNT_HBD:
+    if hbd_to_use >= MIN_ORDER_HBD:
         try:
-            market.buy(my_buy_price, Amount(f"{ORDER_AMOUNT_HBD} {SYMBOL_QUOTE}"))
-            print(f"🟢 ALIŞ emri: {ORDER_AMOUNT_HBD} HBD @ {my_buy_price}")
+            market.buy(my_buy_price, Amount(f"{hbd_to_use:.3f} {SYMBOL_QUOTE}"))
+            print(f"🟢 ALIŞ emri: {hbd_to_use:.3f} HBD @ {my_buy_price}")
             time.sleep(3)
+            order_placed = True
         except Exception as e:
             print(f"❌ Alış hatası: {e}")
     else:
-        print(f"⚠️ Yetersiz HBD: {balances['HBD']} < {ORDER_AMOUNT_HBD}")
+        print(f"⏭️ Alış atlandı (HBD yetersiz: {hbd_to_use:.3f} < {MIN_ORDER_HBD})")
     
     # 🔴 SATIŞ emri (HIVE ile HBD al)
-    hive_to_sell = ORDER_AMOUNT_HBD / my_sell_price
-    if balances["HIVE"] >= hive_to_sell:
+    if hive_to_use >= 0.01:  # Minimum 0.01 HIVE
         try:
-            market.sell(my_sell_price, Amount(f"{hive_to_sell:.3f} {SYMBOL_BASE}"))
-            print(f"🔴 SATIŞ emri: {hive_to_sell:.3f} HIVE @ {my_sell_price}")
+            market.sell(my_sell_price, Amount(f"{hive_to_use:.3f} {SYMBOL_BASE}"))
+            print(f"🔴 SATIŞ emri: {hive_to_use:.3f} HIVE @ {my_sell_price}")
             time.sleep(3)
+            order_placed = True
         except Exception as e:
             print(f"❌ Satış hatası: {e}")
     else:
-        print(f"⚠️ Yetersiz HIVE: {balances['HIVE']} < {hive_to_sell:.3f}")
-
-def main():
-    separator = "=" * 50
-    print(f"\n{separator}")
-    print(f"🤖 Hive Bot çalıştı - {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    print(separator)
+        print(f"⏭️ Satış atlandı (HIVE yetersiz: {hive_to_use:.3f})")
     
-    if not ACTIVE_KEY or not USERNAME:
-        print("❌ ACTIVE_KEY veya HIVE_USERNAME eksik!")
-        return
-    
-    try:
-        cancel_all_orders()
-        time.sleep(5)
-        place_orders()
-        print(f"\n✅ Bot döngüsü tamamlandı")
-    except Exception as e:
-        print(f"💥 Kritik hata: {e}")
-        import traceback
-        traceback.print_exc()
-
-if __name__ == "__main__":
-    main()
+    if not order_pl
