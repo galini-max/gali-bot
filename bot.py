@@ -4,7 +4,7 @@ from beem import Hive
 from beem.market import Market
 from beem.amount import Amount
 
-# --- AGRESİF AYARLAR ---
+# --- AGRESIF + AKILLI AYARLAR ---
 HIVE_NODE = os.getenv("HIVE_NODE", "https://api.hive.blog")
 ACTIVE_KEY = os.getenv("ACTIVE_KEY")
 USERNAME = os.getenv("HIVE_USERNAME")
@@ -12,13 +12,12 @@ USERNAME = os.getenv("HIVE_USERNAME")
 SYMBOL_BASE = "HIVE"
 SYMBOL_QUOTE = "HBD"
 
-# AGRESİF PARAMETRELER
-SPREAD_PERCENT = 0.5          # %0.5 kar marjı (eski %1.5)
-USE_BALANCE_PERCENT = 95      # Bakiyenin %95'ini kullan (eski %90)
-MIN_ORDER_HBD = 0.5           # Min 0.5 HBD (eski 10)
+SPREAD_PERCENT = 0.5
+USE_BALANCE_PERCENT = 95
+MIN_ORDER_HBD = 0.5
 
-# Fiyat değişim eşiği (%0.1'den fazla değişirse emir yenile)
-PRICE_CHANGE_THRESHOLD = 0.1
+# Akıllı güncelleme eşiği: Emir piyasa fiyatından bu kadar uzaksa güncelle
+UPDATE_THRESHOLD_PERCENT = 0.5
 
 def get_client():
     keys = [ACTIVE_KEY] if ACTIVE_KEY else []
@@ -53,7 +52,7 @@ def cancel_all_orders():
     if not orders:
         print("Iptal edilecek emir yok")
         return
-    print(str(len(orders)) + " emir bulundu")
+    print(str(len(orders)) + " emir bulundu, iptal ediliyor...")
     for order in orders:
         try:
             order_id = order.get("orderid")
@@ -62,6 +61,51 @@ def cancel_all_orders():
             time.sleep(2)
         except Exception as e:
             print("Iptal hatasi: " + str(e))
+
+def check_existing_orders(current_bid, current_ask):
+    """
+    Açık emirleri kontrol et.
+    Emirler piyasa fiyatına yakınsa True döndür (güncelleme yapma).
+    """
+    orders = get_open_orders()
+    
+    if not orders:
+        print("Acik emir yok, yeni emir verilecek")
+        return False
+    
+    buy_orders = [o for o in orders if o.get("type") == "buy"]
+    sell_orders = [o for o in orders if o.get("type") == "sell"]
+    
+    print("Mevcut emirler -> Alis: " + str(len(buy_orders)) + " | Satis: " + str(len(sell_orders)))
+    
+    # En iyi alış ve satış emirlerimizi bul
+    best_buy = max([float(o.get("price", 0)) for o in buy_orders]) if buy_orders else 0
+    best_sell = min([float(o.get("price", 999)) for o in sell_orders]) if sell_orders else 999
+    
+    print("En iyi emirlerim -> Alis: " + str(best_buy) + " | Satis: " + str(best_sell))
+    print("Piyasa -> Bid: " + str(current_bid) + " | Ask: " + str(current_ask))
+    
+    # Emirlerin piyasa fiyatına yakınlığını hesapla
+    if best_buy > 0:
+        buy_diff = abs(current_bid - best_buy) / current_bid * 100
+    else:
+        buy_diff = 999
+    
+    if best_sell < 999:
+        sell_diff = abs(current_ask - best_sell) / current_ask * 100
+    else:
+        sell_diff = 999
+    
+    print("Fiyat farki -> Alis: %" + str(round(buy_diff, 2)) + " | Satis: %" + str(round(sell_diff, 2)))
+    print("Esik deger: %" + str(UPDATE_THRESHOLD_PERCENT))
+    
+    # Eğer her iki emir de piyasa fiyatına yakınsa, güncelleme yapma
+    if buy_diff < UPDATE_THRESHOLD_PERCENT and sell_diff < UPDATE_THRESHOLD_PERCENT:
+        print("AKILLI: Emirler piyasa fiyatina yakin, guncelleme yapilmiyor (API tasarrufu)")
+        return True
+    
+    print("AKILLI: Emirler uzakta, guncelleme yapilacak")
+    return False
 
 def place_orders():
     market = get_market()
@@ -77,7 +121,6 @@ def place_orders():
     highest_bid = float(highest_bid)
     lowest_ask = float(lowest_ask)
     
-    # AGRESİF: Spread çok dar
     my_buy_price = round(highest_bid * (1 - SPREAD_PERCENT / 200), 6)
     my_sell_price = round(lowest_ask * (1 + SPREAD_PERCENT / 200), 6)
     
@@ -86,7 +129,6 @@ def place_orders():
     print("Benim fiyatlarim -> Alis: " + str(my_buy_price) + " | Satis: " + str(my_sell_price))
     print("Bakiye -> HIVE: " + str(balances['HIVE']) + " | HBD: " + str(balances['HBD']))
     
-    # AGRESİF: Bakiyenin %95'ini kullan
     hbd_to_use = balances["HBD"] * (USE_BALANCE_PERCENT / 100)
     hive_to_use = balances["HIVE"] * (USE_BALANCE_PERCENT / 100)
     
@@ -94,7 +136,6 @@ def place_orders():
     
     order_placed = False
     
-    # ALIS emri
     if hbd_to_use >= MIN_ORDER_HBD:
         try:
             market.buy(my_buy_price, Amount(str(round(hbd_to_use, 3)) + " " + SYMBOL_QUOTE), account=USERNAME)
@@ -104,9 +145,8 @@ def place_orders():
         except Exception as e:
             print("Alis hatasi: " + str(e))
     else:
-        print("Alis atlandi (HBD yetersiz: " + str(hbd_to_use) + ")")
+        print("Alis atlandi (HBD yetersiz: " + str(round(hbd_to_use, 3)) + ")")
     
-    # SATIS emri
     if hive_to_use >= 0.01:
         try:
             market.sell(my_sell_price, Amount(str(round(hive_to_use, 3)) + " " + SYMBOL_BASE), account=USERNAME)
@@ -123,7 +163,7 @@ def place_orders():
 
 def main():
     print("=" * 50)
-    print("Hive Bot (AGRESİF MOD) - " + time.strftime('%Y-%m-%d %H:%M:%S'))
+    print("Hive Bot (AKILLI MOD) - " + time.strftime('%Y-%m-%d %H:%M:%S'))
     print("=" * 50)
     
     if not ACTIVE_KEY or not USERNAME:
@@ -131,12 +171,32 @@ def main():
         return
     
     try:
-        cancel_all_orders()
-        time.sleep(3)
-        place_orders()
+        # 1. Piyasa fiyatını al
+        market = get_market()
+        ticker = market.ticker()
+        current_bid = float(ticker.get("highest_bid", 0))
+        current_ask = float(ticker.get("lowest_ask", 0))
+        
+        print("Piyasa okundu -> Bid: " + str(current_bid) + " | Ask: " + str(current_ask))
+        
+        # 2. Akıllı kontrol: Mevcut emirler yeterli mi?
+        orders_ok = check_existing_orders(current_bid, current_ask)
+        
+        if orders_ok:
+            # Emirler iyi durumda, sadece bakiyeyi göster
+            balances = get_balances()
+            print("Bakiye -> HIVE: " + str(balances['HIVE']) + " | HBD: " + str(balances['HBD']))
+        else:
+            # Emirleri güncelle
+            cancel_all_orders()
+            time.sleep(3)
+            place_orders()
+        
         print("Bot dongusu tamamlandi")
     except Exception as e:
         print("Kritik hata: " + str(e))
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
